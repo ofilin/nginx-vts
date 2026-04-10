@@ -1,5 +1,8 @@
-FROM alpine:3.23 AS builder
+ARG ALPINE_VERSION=3.23
+ARG NGINX_VERSION=1.29.8
+ARG VTS_VERSION=v0.2.5
 
+FROM alpine:${ALPINE_VERSION} AS builder
 ARG NGINX_VERSION
 ARG VTS_VERSION
 
@@ -15,32 +18,46 @@ RUN mkdir -p /usr/src && \
 RUN git clone --depth 1 --branch ${VTS_VERSION} \
     https://github.com/vozlt/nginx-module-vts.git /usr/src/nginx-module-vts
 
-WORKDIR /usr/src/nginx-module-vts
+WORKDIR /usr/src/nginx
 
-RUN ./configure \
-    --add-module=/usr/src/nginx-module-vts \
-    --with-cc-opt='-O2 -pipe' && \
-    make
+RUN ./configure --with-compat --add-dynamic-module=/usr/src/nginx-module-vts && \
+    make modules
 
 FROM nginx:${NGINX_VERSION}-alpine
 
-COPY --from=builder /usr/src/nginx-module-vts/objs/ngx_http_vhost_traffic_status_module.so \
-    /usr/lib/nginx/modules/
+# Удаляем конфликтующий default.conf
+RUN rm /etc/nginx/conf.d/default.conf
 
-RUN echo "load_module /usr/lib/nginx/modules/ngx_http_vhost_traffic_status_module.so;" \
-    > /etc/nginx/modules-enabled/50-vts.conf
+# Создаём директорию для модулей
+RUN mkdir -p /etc/nginx/modules
 
+# Копируем модуль
+COPY --from=builder /usr/src/nginx/objs/ngx_http_vhost_traffic_status_module.so \
+    /etc/nginx/modules/
+
+# Загружаем модуль
+RUN sed -i '1i load_module /etc/nginx/modules/ngx_http_vhost_traffic_status_module.so;\n' \
+    /etc/nginx/nginx.conf
+
+# Добавляем VTS настройки в http блок
 RUN sed -i '/http {/a \    vhost_traffic_status_zone;\n    vhost_traffic_status_filter_by_host on;' \
     /etc/nginx/nginx.conf
 
+# Создаем server блок для метрик
 RUN cat > /etc/nginx/conf.d/status.conf <<'EOF'
 server {
-    listen 80 default_server;
+    listen 80;
     server_name _;
+    
     location /status {
         vhost_traffic_status_display;
         vhost_traffic_status_display_format prometheus;
         allow all;
+    }
+    
+    location / {
+        root /usr/share/nginx/html;
+        index index.html index.htm;
     }
 }
 EOF
@@ -48,4 +65,3 @@ EOF
 EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
-
