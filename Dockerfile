@@ -1,7 +1,7 @@
 FROM alpine:3.21 AS builder
 
 ARG NGINX_VERSION=1.29.8
-ARG VTS_VERSION=v0.2.4
+ARG VTS_VERSION=v0.2.5
 
 RUN apk add --no-cache \
     git gcc libc-dev make openssl-dev pcre-dev zlib-dev linux-headers curl
