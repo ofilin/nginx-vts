@@ -60,16 +60,11 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
       
       - name: Build and push
-        if: steps.check.outputs.need_update == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64, linux/arm64
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/nginx-vts:latest
-            ${{ secrets.DOCKER_USERNAME }}/nginx-vts:${{ steps.nginx.outputs.version }}
-          build-args: |
-            NGINX_VERSION=${{ steps.nginx.outputs.version }}
-            VTS_VERSION=${{ steps.vts.outputs.version }}
- 
+        run: |
+          export NGINX_VERSION=${{ steps.nginx.outputs.version }}
+          export VTS_VERSION=${{ steps.vts.outputs.version }}
+          envsubst '${NGINX_VERSION}' < Dockerfile | docker build \
+            --build-arg VTS_VERSION=$VTS_VERSION \
+            -t ${{ secrets.DOCKER_USERNAME }}/nginx-vts:$NGINX_VERSION \
+            -
+          docker push ${{ secrets.DOCKER_USERNAME }}/nginx-vts:$NGINX_VERSION

@@ -1,7 +1,7 @@
-FROM alpine:3.21 AS builder
+FROM alpine:3.23 AS builder
 
-ARG NGINX_VERSION=1.26.2
-ARG VTS_VERSION=v0.2.5
+ARG NGINX_VERSION
+ARG VTS_VERSION
 
 RUN apk add --no-cache \
     git gcc libc-dev make openssl-dev pcre-dev zlib-dev linux-headers curl
@@ -22,7 +22,6 @@ RUN ./configure \
     --with-cc-opt='-O2 -pipe' && \
     make
 
-ARG NGINX_VERSION
 FROM nginx:${NGINX_VERSION}-alpine
 
 COPY --from=builder /usr/src/nginx-module-vts/objs/ngx_http_vhost_traffic_status_module.so \
@@ -49,4 +48,4 @@ EOF
 EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
- 
+
