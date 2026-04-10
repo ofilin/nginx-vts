@@ -1,6 +1,6 @@
-ARG ALPINE_VERSION=3.22
-ARG NGINX_VERSION=1.29.7
+ARG NGINX_VERSION=1.29.8
 ARG VTS_VERSION=v0.2.5
+ARG ALPINE_VERSION=3.23
 
 FROM alpine:${ALPINE_VERSION} AS builder
 ARG NGINX_VERSION
@@ -25,12 +25,6 @@ RUN ./configure --with-compat --add-dynamic-module=/usr/src/nginx-module-vts && 
 
 FROM nginx:${NGINX_VERSION}-alpine
 
-# Удаляем конфликтующий default.conf
-RUN rm /etc/nginx/conf.d/default.conf
-
-# Создаём директорию для модулей
-RUN mkdir -p /etc/nginx/modules
-
 # Копируем модуль
 COPY --from=builder /usr/src/nginx/objs/ngx_http_vhost_traffic_status_module.so \
     /etc/nginx/modules/
@@ -42,25 +36,6 @@ RUN sed -i '1i load_module /etc/nginx/modules/ngx_http_vhost_traffic_status_modu
 # Добавляем VTS настройки в http блок
 RUN sed -i '/http {/a \    vhost_traffic_status_zone;\n    vhost_traffic_status_filter_by_host on;' \
     /etc/nginx/nginx.conf
-
-# Создаем server блок для метрик
-RUN cat > /etc/nginx/conf.d/status.conf <<'EOF'
-server {
-    listen 80;
-    server_name _;
-    
-    location /status {
-        vhost_traffic_status_display;
-        vhost_traffic_status_display_format prometheus;
-        allow all;
-    }
-    
-    location / {
-        root /usr/share/nginx/html;
-        index index.html index.htm;
-    }
-}
-EOF
 
 EXPOSE 80
 
