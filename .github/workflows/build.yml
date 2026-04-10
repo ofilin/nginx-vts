@@ -1,0 +1,74 @@
+name: Build Nginx with VTS
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Get latest Nginx version
+        id: nginx
+        run: |
+          LATEST=$(curl -s https://nginx.org/en/download.html | grep -oP 'nginx-\K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+      
+      - name: Get latest VTS version
+        id: vts
+        run: |
+          VTS_LATEST=$(curl -s https://api.github.com/repos/vozlt/nginx-module-vts/tags | grep -oP '"name": "\Kv[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          echo "version=$VTS_LATEST" >> $GITHUB_OUTPUT
+      
+      - name: Check current versions in Dockerfile
+        id: check
+        run: |
+          CURRENT_NGINX=$(grep -oP 'ARG NGINX_VERSION=\K[0-9.]+' Dockerfile)
+          CURRENT_VTS=$(grep -oP 'ARG VTS_VERSION=\Kv[0-9.]+' Dockerfile)
+          echo "Current Nginx: $CURRENT_NGINX, Latest: ${{ steps.nginx.outputs.version }}"
+          echo "Current VTS: $CURRENT_VTS, Latest: ${{ steps.vts.outputs.version }}"
+          
+          if [ "$CURRENT_NGINX" != "${{ steps.nginx.outputs.version }}" ] || [ "$CURRENT_VTS" != "${{ steps.vts.outputs.version }}" ]; then
+            echo "need_update=true" >> $GITHUB_OUTPUT
+          else
+            echo "need_update=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Update Dockerfile
+        if: steps.check.outputs.need_update == 'true'
+        run: |
+          sed -i "s/ARG NGINX_VERSION=.*/ARG NGINX_VERSION=${{ steps.nginx.outputs.version }}/" Dockerfile
+          sed -i "s/ARG VTS_VERSION=.*/ARG VTS_VERSION=${{ steps.vts.outputs.version }}/" Dockerfile
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Dockerfile
+          git commit -m "chore: update nginx to ${{ steps.nginx.outputs.version }}, vts to ${{ steps.vts.outputs.version }}"
+          git push origin main
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      
+      - name: Build and push
+        if: steps.check.outputs.need_update == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64, linux/arm64
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/nginx-vts:latest
+            ${{ secrets.DOCKER_USERNAME }}/nginx-vts:${{ steps.nginx.outputs.version }}
+          build-args: |
+            NGINX_VERSION=${{ steps.nginx.outputs.version }}
+            VTS_VERSION=${{ steps.vts.outputs.version }}
