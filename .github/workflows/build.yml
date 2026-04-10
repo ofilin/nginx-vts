@@ -72,3 +72,4 @@ jobs:
           build-args: |
             NGINX_VERSION=${{ steps.nginx.outputs.version }}
             VTS_VERSION=${{ steps.vts.outputs.version }}
+ 
