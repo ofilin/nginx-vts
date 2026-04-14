@@ -1,7 +1,10 @@
-FROM alpine:3.21 AS builder
-
 ARG NGINX_VERSION=1.29.8
-ARG VTS_VERSION=v0.2.4
+ARG VTS_VERSION=v0.2.5
+ARG ALPINE_VERSION=3.23
+
+FROM alpine:${ALPINE_VERSION} AS builder
+ARG NGINX_VERSION
+ARG VTS_VERSION
 
 RUN apk add --no-cache \
     git gcc libc-dev make openssl-dev pcre-dev zlib-dev linux-headers curl
@@ -17,79 +20,22 @@ RUN git clone --depth 1 --branch ${VTS_VERSION} \
 
 WORKDIR /usr/src/nginx
 
-# Собираем Nginx с модулем VTS (статическая сборка)
-RUN ./configure \
-    --prefix=/etc/nginx \
-    --sbin-path=/usr/sbin/nginx \
-    --conf-path=/etc/nginx/nginx.conf \
-    --error-log-path=/var/log/nginx/error.log \
-    --http-log-path=/var/log/nginx/access.log \
-    --pid-path=/var/run/nginx.pid \
-    --lock-path=/var/run/nginx.lock \
-    --with-http_ssl_module \
-    --with-http_v2_module \
-    --with-http_v3_module \
-    --add-module=/usr/src/nginx-module-vts && \
-    make && \
-    make install
+RUN ./configure --with-compat --add-dynamic-module=/usr/src/nginx-module-vts && \
+    make modules
 
-FROM alpine:3.21
+FROM nginx:${NGINX_VERSION}-alpine
 
-# Копируем собранный Nginx и всё необходимое
-COPY --from=builder /usr/sbin/nginx /usr/sbin/nginx
-COPY --from=builder /etc/nginx /etc/nginx
+# Копируем модуль
+COPY --from=builder /usr/src/nginx/objs/ngx_http_vhost_traffic_status_module.so \
+    /etc/nginx/modules/
 
-RUN apk add --no-cache openssl pcre zlib ca-certificates && \
-    mkdir -p /var/cache/nginx /var/log/nginx /etc/nginx/conf.d && \
-    adduser -D -H -s /sbin/nologin -u 1000 nginx
+# Загружаем модуль
+RUN sed -i '1i load_module /etc/nginx/modules/ngx_http_vhost_traffic_status_module.so;\n' \
+    /etc/nginx/nginx.conf
 
-# Создаем минимальный nginx.conf с поддержкой VTS
-RUN cat > /etc/nginx/nginx.conf <<'EOF'
-user nginx;
-worker_processes auto;
-error_log /var/log/nginx/error.log warn;
-pid /var/run/nginx.pid;
-
-events {
-    worker_connections 1024;
-}
-
-http {
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-    
-    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
-                    '$status $body_bytes_sent "$http_referer" '
-                    '"$http_user_agent" "$http_x_forwarded_for"';
-    
-    access_log /var/log/nginx/access.log main;
-    
-    sendfile on;
-    tcp_nopush on;
-    keepalive_timeout 65;
-    gzip on;
-    
-    # Включаем VTS
-    vhost_traffic_status_zone;
-    vhost_traffic_status_filter_by_host on;
-    
-    include /etc/nginx/conf.d/*.conf;
-}
-EOF
-
-# Создаем простой location для метрик
-RUN cat > /etc/nginx/conf.d/status.conf <<'EOF'
-server {
-    listen 80 default_server;
-    server_name _;
-    
-    location /status {
-        vhost_traffic_status_display;
-        vhost_traffic_status_display_format prometheus;
-        allow all;
-    }
-}
-EOF
+# Добавляем VTS настройки в http блок
+RUN sed -i '/http {/a \    vhost_traffic_status_zone;\n    vhost_traffic_status_filter_by_host on;' \
+    /etc/nginx/nginx.conf
 
 EXPOSE 80
 
