@@ -15,7 +15,7 @@ jobs:
       - name: Get latest Nginx version
         id: nginx
         run: |
-          LATEST=$(curl -s https://nginx.org/en/download.html | grep -oP 'nginx-\K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          LATEST=$(curl -s https://api.github.com/repos/nginx/nginx/tags | jq -r '.[0].name' 2>/dev/null | sed 's/release-//')
           echo "version=$LATEST" >> $GITHUB_OUTPUT
       
       - name: Get latest VTS version
