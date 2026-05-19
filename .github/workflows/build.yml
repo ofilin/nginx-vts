@@ -41,6 +41,12 @@ jobs:
       - name: Update Dockerfile
         if: steps.check.outputs.need_update == 'true'
         run: |
+          if [ -z "${{ steps.nginx.outputs.version }}" ] || [ -z "${{ steps.vts.outputs.version }}" ]; then
+            echo "ERROR: Empty version detected!"
+            echo "Nginx version: '${{ steps.nginx.outputs.version }}'"
+            echo "VTS version: '${{ steps.vts.outputs.version }}'"
+            exit 1
+          fi
           sed -i "s/ARG NGINX_VERSION=.*/ARG NGINX_VERSION=${{ steps.nginx.outputs.version }}/" Dockerfile
           sed -i "s/ARG VTS_VERSION=.*/ARG VTS_VERSION=${{ steps.vts.outputs.version }}/" Dockerfile
           
